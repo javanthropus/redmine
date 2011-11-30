@@ -79,6 +79,10 @@ class Repository::Git < Repository
     scm.tags
   end
 
+  def head_revisions
+    scm.head_revisions
+  end
+
   def default_branch
     scm.default_branch
   rescue Exception => e
@@ -129,11 +133,10 @@ class Repository::Git < Repository
   # The repository can still be fully reloaded by calling #clear_changesets
   # before fetching changesets (eg. for offline resync)
   def fetch_changesets
-    scm_brs = branches
-    return if scm_brs.nil? || scm_brs.empty?
+    new_head_scmids = head_revisions
+    return if new_head_scmids.nil? || new_head_scmids.empty?
     h1 = extra_info || {}
     h  = h1.dup
-    h["branches"]       ||= {}
     h["db_consistent"]  ||= {}
     if changesets.count == 0
       h["db_consistent"]["ordering"] = 1
@@ -144,27 +147,24 @@ class Repository::Git < Repository
       merge_extra_info(h)
       self.save
     end
-    scm_brs.each do |br1|
-      br = br1.to_s
-      from_scmid = nil
-      from_scmid = h["branches"][br]["last_scmid"] if h["branches"][br]
-      h["branches"][br] ||= {}
-      scm.revisions('', from_scmid, br, {:reverse => true}) do |rev|
+    h["head_scmids"] ||= []
+    transaction do
+      scm.revisions('',
+                    h["head_scmids"], new_head_scmids,
+                    {:reverse => true}) do |rev|
         db_rev = find_changeset_by_name(rev.revision)
-        transaction do
-          if db_rev.nil?
-            db_saved_rev = save_revision(rev)
-            parents = {}
-            parents[db_saved_rev] = rev.parents unless rev.parents.nil?
-            parents.each do |ch, chparents|
-              ch.parents = chparents.collect{|rp| find_changeset_by_name(rp)}.compact
-            end
+        if db_rev.nil?
+          db_saved_rev = save_revision(rev)
+          unless rev.parents.nil?
+            db_saved_rev.parents =
+              rev.parents.collect{|rp| find_changeset_by_name(rp)}.compact
           end
-          h["branches"][br]["last_scmid"] = rev.scmid
-          merge_extra_info(h)
-          self.save
         end
       end
+      # Update saved head revisions.
+      h["head_scmids"] = new_head_scmids.dup
+      merge_extra_info(h)
+      self.save
     end
   end
 
