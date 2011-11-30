@@ -77,7 +77,7 @@ class RepositoryGitTest < ActiveSupport::TestCase
       assert_equal "README", change.path
       assert_equal "A", change.action
 
-      assert_equal 4, @repository.extra_info["branches"].size
+      assert_equal 4, @repository.extra_info["head_scmids"].size
     end
 
     def test_fetch_changesets_incremental
@@ -85,12 +85,12 @@ class RepositoryGitTest < ActiveSupport::TestCase
       @repository.reload
       assert_equal 21, @repository.changesets.count
       assert_equal 33, @repository.changes.count
-      extra_info_db = @repository.extra_info["branches"]
+      extra_info_db = @repository.extra_info["head_scmids"]
       assert_equal 4, extra_info_db.size
-      assert_equal "1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127",
-                    extra_info_db["latin-1-path-encoding"]["last_scmid"]
-      assert_equal "83ca5fd546063a3c7dc2e568ba3355661a9e2b2c",
-                    extra_info_db["master"]["last_scmid"]
+      assert extra_info_db.include?("1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127"),
+             "Expected #{extra_info_db.inspect} to include \"1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127\""
+      assert extra_info_db.include?("83ca5fd546063a3c7dc2e568ba3355661a9e2b2c"),
+             "Expected #{extra_info_db.inspect} to include \"83ca5fd546063a3c7dc2e568ba3355661a9e2b2c\""
 
       del_revs = [
           "83ca5fd546063a3c7dc2e568ba3355661a9e2b2c",
@@ -107,14 +107,14 @@ class RepositoryGitTest < ActiveSupport::TestCase
       cs1 = @repository.changesets
       assert_equal 15, cs1.count
       h = @repository.extra_info.dup
-      h["branches"]["master"]["last_scmid"] =
-            "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"
+      h["head_scmids"].delete("83ca5fd546063a3c7dc2e568ba3355661a9e2b2c")
+      h["head_scmids"] << "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"
       @repository.merge_extra_info(h)
       @repository.save
       @repository.reload
-      extra_info_db_1 = @repository.extra_info["branches"]
-      assert_equal "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8",
-                    extra_info_db_1["master"]["last_scmid"]
+      extra_info_db_1 = @repository.extra_info["head_scmids"]
+      assert extra_info_db_1.include?("4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"),
+             "Expected #{extra_info_db_1.inspect} to include \"4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8\""
 
       @repository.fetch_changesets
       assert_equal 21, @repository.changesets.count
@@ -125,12 +125,12 @@ class RepositoryGitTest < ActiveSupport::TestCase
       @repository.reload
       assert_equal 21, @repository.changesets.count
       assert_equal 33, @repository.changes.count
-      extra_info_db = @repository.extra_info["branches"]
+      extra_info_db = @repository.extra_info["head_scmids"]
       assert_equal 4, extra_info_db.size
-      assert_equal "1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127",
-                    extra_info_db["latin-1-path-encoding"]["last_scmid"]
-      assert_equal "83ca5fd546063a3c7dc2e568ba3355661a9e2b2c",
-                    extra_info_db["master"]["last_scmid"]
+      assert extra_info_db.include?("1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127"),
+             "Expected #{extra_info_db.inspect} to include \"1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127\""
+      assert extra_info_db.include?("83ca5fd546063a3c7dc2e568ba3355661a9e2b2c"),
+             "Expected #{extra_info_db.inspect} to include \"83ca5fd546063a3c7dc2e568ba3355661a9e2b2c\""
 
       del_revs = [
           "83ca5fd546063a3c7dc2e568ba3355661a9e2b2c",
@@ -147,14 +147,14 @@ class RepositoryGitTest < ActiveSupport::TestCase
       cs1 = @repository.changesets
       assert_equal 15, cs1.count
       h = @repository.extra_info.dup
-      h["branches"]["master"]["last_scmid"] =
-            "abcd1234efgh"
+      h["head_scmids"].delete("83ca5fd546063a3c7dc2e568ba3355661a9e2b2c")
+      h["head_scmids"] << "abcd1234efgh"
       @repository.merge_extra_info(h)
       @repository.save
       @repository.reload
-      extra_info_db_1 = @repository.extra_info["branches"]
-      assert_equal "abcd1234efgh",
-                    extra_info_db_1["master"]["last_scmid"]
+      extra_info_db_1 = @repository.extra_info["head_scmids"]
+      assert extra_info_db_1.include?("abcd1234efgh"),
+             "Expected #{extra_info_db_1.inspect} to include \"abcd1234efgh\""
 
       @repository.fetch_changesets
       assert_equal 15, @repository.changesets.count
@@ -197,14 +197,14 @@ class RepositoryGitTest < ActiveSupport::TestCase
       assert_equal 15, cs1.count
       assert_equal 0, @repository.extra_info["db_consistent"]["ordering"]
       h = @repository.extra_info.dup
-      h["branches"]["master"]["last_scmid"] =
-            "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"
+      h["head_scmids"].delete("83ca5fd546063a3c7dc2e568ba3355661a9e2b2c")
+      h["head_scmids"] << "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"
       @repository.merge_extra_info(h)
       @repository.save
       @repository.reload
-      extra_info_db_1 = @repository.extra_info["branches"]
-      assert_equal "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8",
-                    extra_info_db_1["master"]["last_scmid"]
+      extra_info_db_1 = @repository.extra_info["head_scmids"]
+      assert extra_info_db_1.include?("4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"),
+             "Expected #{extra_info_db_1.inspect} to include \"4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8\""
 
       @repository.fetch_changesets
       assert_equal 21, @repository.changesets.count
@@ -426,7 +426,7 @@ class RepositoryGitTest < ActiveSupport::TestCase
     def test_next_nil
       @repository.fetch_changesets
       @repository.reload
-      %w|67e7792ce20ccae2e4bb73eed09bb397819c8834 67e7792ce20cca|.each do |r1|
+      %w|1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127 1ca7f5ed374f3c|.each do |r1|
         changeset = @repository.find_changeset_by_name(r1)
         assert_nil changeset.next
       end

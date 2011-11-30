@@ -68,12 +68,57 @@ begin
             ], @adapter.tags
       end
 
+      def test_head_revisions
+        assert_equal  [
+              "1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127",
+              "67e7792ce20ccae2e4bb73eed09bb397819c8834",
+              "83ca5fd546063a3c7dc2e568ba3355661a9e2b2c",
+              "fba357b886984ee71185ad2065e65fc0417d9b92"
+            ], @adapter.head_revisions
+      end
+
       def test_getting_all_revisions
         assert_equal 21, @adapter.revisions('',nil,nil,:all => true).length
       end
 
       def test_getting_certain_revisions
         assert_equal 1, @adapter.revisions('','899a15d^','899a15d').length
+      end
+
+      def test_getting_multiple_named_revisions
+        revs = @adapter.revisions('',nil,['4f26664'])
+        assert_equal 13, revs.length
+        rev_ids = revs.map{|rev| rev.identifier}
+        assert rev_ids.include?("4f26664364207fa8b1af9f8722647ab2d4ac5d43"),
+             "Expected #{rev_ids.inspect} to include \"4f26664364207fa8b1af9f8722647ab2d4ac5d43\""
+
+        revs = @adapter.revisions('',nil,['4f26664', '57ca437'])
+        assert_equal 15, revs.length
+        rev_ids = revs.map{|rev| rev.identifier}
+        assert rev_ids.include?("4f26664364207fa8b1af9f8722647ab2d4ac5d43"),
+             "Expected #{rev_ids.inspect} to include \"4f26664364207fa8b1af9f8722647ab2d4ac5d43\""
+        assert rev_ids.include?("57ca437c0acbbcb749821fdf3726a1367056d364"),
+             "Expected #{rev_ids.inspect} to include \"57ca437c0acbbcb749821fdf3726a1367056d364\""
+      end
+
+      def test_excluding_multiple_revisions
+        revs = @adapter.revisions('',['32ae898'],'4f26664')
+        assert_equal 2, revs.length
+        rev_ids = revs.map{|rev| rev.identifier}
+        assert rev_ids.include?("4f26664364207fa8b1af9f8722647ab2d4ac5d43"),
+             "Expected #{rev_ids.inspect} to include \"4f26664364207fa8b1af9f8722647ab2d4ac5d43\""
+        assert rev_ids.include?("deff712f05a90d96edbd70facc47d944be5897e3"),
+             "Expected #{rev_ids.inspect} to include \"deff712f05a90d96edbd70facc47d944be5897e3\""
+
+        revs = @adapter.revisions('',['713f494', '4a07fe3'],'4f26664')
+        assert_equal 5, revs.length
+        rev_ids = revs.map{|rev| rev.identifier}
+        assert rev_ids.include?("4f26664364207fa8b1af9f8722647ab2d4ac5d43"),
+             "Expected #{rev_ids.inspect} to include \"4f26664364207fa8b1af9f8722647ab2d4ac5d43\""
+        assert rev_ids.include?("deff712f05a90d96edbd70facc47d944be5897e3"),
+             "Expected #{rev_ids.inspect} to include \"deff712f05a90d96edbd70facc47d944be5897e3\""
+        assert rev_ids.include?("7e61ac704deecde634b51e59daa8110435dcb3da"),
+             "Expected #{rev_ids.inspect} to include \"7e61ac704deecde634b51e59daa8110435dcb3da\""
       end
 
       def test_revisions_reverse

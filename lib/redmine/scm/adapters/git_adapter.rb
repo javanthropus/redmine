@@ -101,6 +101,16 @@ module Redmine
           nil
         end
 
+        def head_revisions
+          return @head_revisions if @head_revisions
+          cmd_args = %w|show-ref --heads|
+          @head_revisions = scm_cmd(*cmd_args) do |io|
+            io.map{|line| line.match('(.*?)\s+refs/heads/.*')[1]}.sort!
+          end
+        rescue ScmCommandAborted
+          nil
+        end
+
         def default_branch
           bras = self.branches
           return nil if bras.nil?
@@ -186,17 +196,19 @@ module Redmine
           nil
         end
 
-        def revisions(path, identifier_from, identifier_to, options={})
+        def revisions(path, excludes, includes, options={})
+          # Ensure that includes and excludes are lists (possibly empty).
+          includes = [includes].compact.flatten
+          excludes = [excludes].compact.flatten
+
           revs = Revisions.new
           cmd_args = %w|log --no-color --encoding=UTF-8 --raw --date=iso --pretty=fuller|
           cmd_args << "--reverse" if options[:reverse]
           cmd_args << "--all" if options[:all]
           cmd_args << "-n" << "#{options[:limit].to_i}" if options[:limit]
-          from_to = ""
-          from_to << "#{identifier_from}.." if identifier_from
-          from_to << "#{identifier_to}" if identifier_to
-          cmd_args << from_to if !from_to.empty?
           cmd_args << "--since=#{options[:since].strftime("%Y-%m-%d %H:%M:%S")}" if options[:since]
+          cmd_args.push(*includes) unless includes.empty?
+          cmd_args.push("--not", *excludes) unless excludes.empty?
           cmd_args << "--" << scm_iconv(@path_encoding, 'UTF-8', path) if path && !path.empty?
 
           scm_cmd *cmd_args do |io|
@@ -277,7 +289,7 @@ module Redmine
           end
           revs
         rescue ScmCommandAborted => e
-          logger.error("git log #{from_to.to_s} error: #{e.message}")
+          logger.error("git log error: #{e.message}")
           revs
         end
 
