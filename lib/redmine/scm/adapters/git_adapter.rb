@@ -358,6 +358,16 @@ module Redmine
         end
 
         class Revision < Redmine::Scm::Adapters::Revision
+          def initialize(attributes={})
+            super
+            self.revision = attributes[:scmid]
+          end
+
+          # Returns the scmid.
+          alias_method :revision, :scmid
+          # Sets the scmid.
+          alias_method :revision=, :scmid=
+
           # Returns the readable identifier
           def format_identifier
             identifier[0,8]
