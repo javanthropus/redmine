@@ -82,7 +82,7 @@ module Redmine
           return @branches if @branches
           @branches = []
           cmd_args = %w|branch --no-color --verbose --no-abbrev|
-          scm_cmd(*cmd_args) do |io|
+          scm_cmd(cmd_args) do |io|
             io.each_line do |line|
               branch_rev = line.match('\s*(\*?)\s*(.*?)\s*([0-9a-f]{40}).*$')
               bran = GitBranch.new(branch_rev[2])
@@ -100,7 +100,7 @@ module Redmine
         def tags
           return @tags if @tags
           cmd_args = %w|tag|
-          scm_cmd(*cmd_args) do |io|
+          scm_cmd(cmd_args) do |io|
             @tags = io.readlines.sort!.map{|t| t.strip}
           end
         rescue ScmCommandAborted
@@ -138,7 +138,7 @@ module Redmine
           cmd_args = %w|ls-tree -l|
           cmd_args << "HEAD:#{p}"          if identifier.nil?
           cmd_args << "#{identifier}:#{p}" if identifier
-          scm_cmd(*cmd_args) do |io|
+          scm_cmd(cmd_args) do |io|
             io.each_line do |line|
               e = line.chomp.to_s
               if e =~ /^\d+\s+(\w+)\s+([0-9a-f]{40})\s+([0-9-]+)\t(.+)$/
@@ -173,7 +173,7 @@ module Redmine
           cmd_args << rev if rev
           cmd_args << "--" << path unless path.empty?
           lines = []
-          scm_cmd(*cmd_args) { |io| lines = io.readlines }
+          scm_cmd(cmd_args) { |io| lines = io.readlines }
           begin
               id = lines[0].split[1]
               author = lines[1].match('Author:\s+(.*)$')[1]
@@ -197,24 +197,29 @@ module Redmine
 
         def revisions(path, identifier_from, identifier_to, options={})
           revs = Revisions.new
-          cmd_args = %w|log --no-color --encoding=UTF-8 --raw --date=iso --pretty=fuller --parents|
+          cmd_args = %w|log --no-color --encoding=UTF-8 --raw --date=iso --pretty=fuller --parents --stdin|
           cmd_args << "--reverse" if options[:reverse]
           cmd_args << "-n" << "#{options[:limit].to_i}" if options[:limit]
-          from_to = ""
+          cmd_args << "--" << scm_iconv(@path_encoding, 'UTF-8', path) if path && !path.empty?
+          revisions = []
           if identifier_from || identifier_to
-            from_to << "#{identifier_from}.." if identifier_from
-            from_to << "#{identifier_to}" if identifier_to
-            cmd_args << from_to if !from_to.empty?
+            revisions << ""
+            revisions[0] << "#{identifier_from}.." if identifier_from
+            revisions[0] << "#{identifier_to}" if identifier_to
           else
-            cmd_args += options[:includes] unless options[:includes].blank?
+            unless options[:includes].blank?
+              revisions += ignore_missing_revisions(options[:includes])
+            end
             unless options[:excludes].blank?
-              cmd_args << "--not"
-              cmd_args += options[:excludes]
+              revisions +=
+                ignore_missing_revisions(options[:excludes]).map{|r| "^#{r}"}
             end
           end
-          cmd_args << "--" << scm_iconv(@path_encoding, 'UTF-8', path) if path && !path.empty?
 
-          scm_cmd *cmd_args do |io|
+          scm_cmd(cmd_args, :mode => "r+b") do |io|
+            io.puts(revisions.join("\n"))
+            io.close_write
+
             files=[]
             changeset = {}
             parsing_descr = 0  #0: not parsing desc or files, 1: parsing desc, 2: parsing files
@@ -317,7 +322,7 @@ module Redmine
           end
           cmd_args << "--" <<  scm_iconv(@path_encoding, 'UTF-8', path) unless path.empty?
           diff = []
-          scm_cmd *cmd_args do |io|
+          scm_cmd cmd_args do |io|
             io.each_line do |line|
               diff << line
             end
@@ -333,7 +338,7 @@ module Redmine
           cmd_args << "-p" << identifier << "--" <<  scm_iconv(@path_encoding, 'UTF-8', path)
           blame = Annotate.new
           content = nil
-          scm_cmd(*cmd_args) { |io| io.binmode; content = io.read }
+          scm_cmd(cmd_args) { |io| io.binmode; content = io.read }
           # git annotates binary files
           return nil if content.is_binary_data?
           identifier = ''
@@ -367,7 +372,7 @@ module Redmine
           cmd_args = %w|show --no-color|
           cmd_args << "#{identifier}:#{scm_iconv(@path_encoding, 'UTF-8', path)}"
           cat = nil
-          scm_cmd(*cmd_args) do |io|
+          scm_cmd(cmd_args) do |io|
             io.binmode
             cat = io.read
           end
@@ -383,7 +388,7 @@ module Redmine
           end
         end
 
-        def scm_cmd(*args, &block)
+        def scm_cmd(args, options = {}, &block)
           repo_path = root_url || url
           full_args = ['--git-dir', repo_path]
           if self.class.client_version_above?([1, 7, 2])
@@ -393,6 +398,7 @@ module Redmine
           full_args += args
           ret = shellout(
                    self.class.sq_bin + ' ' + full_args.map { |e| shell_quote e.to_s }.join(' '),
+                   options,
                    &block
                    )
           if $? && $?.exitstatus != 0
@@ -401,6 +407,31 @@ module Redmine
           ret
         end
         private :scm_cmd
+
+        # Return an array containing only the given revisions that exist in the
+        # repository.
+        #
+        # NOTE:
+        # This can be removed once the minimum supported Git version supports
+        # the --ignore-missing option for git-log and #revisions is modified to
+        # use that option.
+        def ignore_missing_revisions(revisions)
+          revisions.select do |revision|
+            begin
+              cmd_args = %w|rev-parse --verify --quiet|
+              cmd_args << revision
+              scm_cmd(cmd_args) do |io|
+                # Read and discard the output in order to make the command
+                # happy.
+                io.read
+              end
+              true
+            rescue ScmCommandAborted
+              false
+            end
+          end
+        end
+        private :ignore_missing_revisions
       end
     end
   end
