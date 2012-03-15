@@ -146,12 +146,16 @@ class RepositoryGitTest < ActiveSupport::TestCase
       h = @repository.extra_info.dup
       h["branches"]["master"]["last_scmid"] =
             "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"
+      h["branches"]["master-20120212"]["last_scmid"] =
+            "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"
       @repository.merge_extra_info(h)
       @repository.save
       @project.reload
       extra_info_db_1 = @repository.extra_info["branches"]
       assert_equal "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8",
                     extra_info_db_1["master"]["last_scmid"]
+      assert_equal "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8",
+                    extra_info_db_1["master-20120212"]["last_scmid"]
 
       @repository.fetch_changesets
       @project.reload
@@ -264,12 +268,16 @@ class RepositoryGitTest < ActiveSupport::TestCase
       h = @repository.extra_info.dup
       h["branches"]["master"]["last_scmid"] =
             "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"
+      h["branches"]["master-20120212"]["last_scmid"] =
+            "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8"
       @repository.merge_extra_info(h)
       @repository.save
       @project.reload
       extra_info_db_1 = @repository.extra_info["branches"]
       assert_equal "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8",
                     extra_info_db_1["master"]["last_scmid"]
+      assert_equal "4a07fe31bffcf2888791f3e6cbc9c4545cefe3e8",
+                    extra_info_db_1["master-20120212"]["last_scmid"]
 
       @repository.fetch_changesets
       assert_equal NUM_REV, @repository.changesets.count
@@ -277,19 +285,13 @@ class RepositoryGitTest < ActiveSupport::TestCase
     end
 
     def test_heads_from_branches_hash
-      assert_nil @repository.extra_info
-      assert_equal 0, @repository.changesets.count
-      assert_equal [], @repository.heads_from_branches_hash
       h = {}
-      h["branches"] = {}
-      h["branches"]["test1"] = {}
-      h["branches"]["test1"]["last_scmid"] = "1234abcd"
-      h["branches"]["test2"] = {}
-      h["branches"]["test2"]["last_scmid"] = "abcd1234"
-      @repository.merge_extra_info(h)
-      @repository.save
-      @project.reload
-      assert_equal ["1234abcd", "abcd1234"], @repository.heads_from_branches_hash.sort
+      assert_equal [], @repository.heads_from_branches_hash(h)
+      h["test1"] = {}
+      h["test1"]["last_scmid"] = "1234abcd"
+      h["test2"] = {}
+      h["test2"]["last_scmid"] = "abcd1234"
+      assert_equal ["1234abcd", "abcd1234"], @repository.heads_from_branches_hash(h).sort
     end
 
     def test_latest_changesets
@@ -511,7 +513,7 @@ class RepositoryGitTest < ActiveSupport::TestCase
       @repository.fetch_changesets
       @project.reload
       assert_equal NUM_REV, @repository.changesets.count
-      %w|95488a44bc25f7d1f97d775a31359539ff333a63 95488a44b|.each do |r1|
+      %w|7234cb2750b63f47bff735edc50a1c0a433c2518 7234cb27|.each do |r1|
         changeset = @repository.find_changeset_by_name(r1)
         assert_nil changeset.previous
       end
@@ -535,7 +537,7 @@ class RepositoryGitTest < ActiveSupport::TestCase
       @repository.fetch_changesets
       @project.reload
       assert_equal NUM_REV, @repository.changesets.count
-      %w|67e7792ce20ccae2e4bb73eed09bb397819c8834 67e7792ce20cca|.each do |r1|
+      %w|2a682156a3b6e77a8bf9cd4590e8db757f3c6c78 2a682156|.each do |r1|
         changeset = @repository.find_changeset_by_name(r1)
         assert_nil changeset.next
       end

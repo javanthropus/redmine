@@ -79,6 +79,14 @@ class Repository::Git < Repository
     scm.tags
   end
 
+  def heads
+    h = {}
+    scm.heads.each do |revision, branch|
+      h[branch] = { 'last_scmid' => revision }
+    end
+    h
+  end
+
   def default_branch
     scm.default_branch
   rescue Exception => e
@@ -99,16 +107,16 @@ class Repository::Git < Repository
                 options = {:report_last_commit => extra_report_last_commit})
   end
 
-  # With SCMs that have a sequential commit numbering,
-  # such as Subversion and Mercurial,
-  # Redmine is able to be clever and only fetch changesets
-  # going forward from the most recent one it knows about.
+  # With SCMs that have a sequential commit numbering, such as Subversion and
+  # Mercurial, Redmine is able to be clever and only fetch changesets going
+  # forward from the most recent one it knows about.
   #
   # However, Git does not have a sequential commit numbering.
   #
-  # In order to fetch only new adding revisions,
-  # Redmine needs to parse revisions per branch.
-  # Branch "last_scmid" is for this requirement.
+  # In order to fetch only new revisions, Redmine needs to parse revisions
+  # introduced by the new heads of new and existing branches since the last time
+  # the branch heads were processed.  Branch "last_scmid" is for this
+  # requirement.
   #
   # In Git and Mercurial, revisions are not in date order.
   # Redmine Mercurial fixed issues.
@@ -118,117 +126,64 @@ class Repository::Git < Repository
   #      http://www.redmine.org/issues/3567
   #
   # Database revision column is text, so Redmine can not sort by revision.
-  # Mercurial has revision number, and revision number guarantees revision order.
-  # Redmine Mercurial model stored revisions ordered by database id to database.
-  # So, Redmine Mercurial model can use correct ordering revisions.
+  # Mercurial has revision number, and revision number guarantees revision
+  # order.  Redmine Mercurial model stored revisions ordered by database id to
+  # database.  So, Redmine Mercurial model can use correct ordering revisions.
   #
-  # Redmine Mercurial adapter uses "hg log -r 0:tip --limit 10"
-  # to get limited revisions from old to new.
-  # But, Git 1.7.3.4 does not support --reverse with -n or --skip.
+  # Redmine Mercurial adapter uses "hg log -r 0:tip --limit 10" to get limited
+  # revisions from old to new.  But, Git 1.7.3.4 does not support --reverse with
+  # -n or --skip.
   #
   # The repository can still be fully reloaded by calling #clear_changesets
   # before fetching changesets (eg. for offline resync)
   def fetch_changesets
-    scm_brs = branches
-    return if scm_brs.nil? || scm_brs.empty?
-    h1 = extra_info || {}
-    h  = h1.dup
-    h["branches"]       ||= {}
-    h["db_consistent"]  ||= {}
-    if changesets.count == 0
-      h["db_consistent"]["ordering"] = 1
-      merge_extra_info(h)
-      self.save
-    elsif ! h["db_consistent"].has_key?("ordering")
-      h["db_consistent"]["ordering"] = 0
+    transaction do
+      scm_heads = heads
+      return if scm_heads.nil? || scm_heads.empty?
+      h1 = extra_info || {}
+      h  = h1.dup
+      h["branches"]       ||= {}
+      h["db_consistent"]  ||= {}
+      if changesets.count == 0
+        h["db_consistent"]["ordering"] = 1
+      elsif ! h["db_consistent"].has_key?("ordering")
+        h["db_consistent"]["ordering"] = 0
+      end
+
+      begin
+        save_revisions(h["branches"], scm_heads)
+      rescue Redmine::Scm::Adapters::CommandFailed
+        raise ActiveRecord::Rollback, $!.message
+      end
+
+      h["branches"] = scm_heads
       merge_extra_info(h)
       self.save
     end
-    save_revisions(h, scm_brs)
   end
 
-  def save_revisions(h, scm_brs)
-    # Remember what revisions we already processed (in any branches)
-    all_revisions = []
-    scm_brs.each do |br1|
-      br = br1.to_s
-      last_revision = nil
-      from_scmid = nil
-      from_scmid = h["branches"][br]["last_scmid"] if h["branches"][br]
-      h["branches"][br] ||= {}
-
-      revisions = scm.revisions('', from_scmid, br, {:reverse => true})
-      next if revisions.blank?
-
-      # Remember the last commit id here, before we start removing revisions from the array.
-      # We'll do that for optimization, but it also means, that we may lose even all revisions.
-      last_revision  = revisions.last
-
-      # remove revisions that we have already processed (possibly in other branches)
-      revisions.reject!{|r| all_revisions.include?(r.scmid)}
-      # add revisions that we are to parse now to 'all processed revisions'
-      # (this equals to a union, because we executed diff above)
-      all_revisions += revisions.map{|r| r.scmid}
-
-      # Make the search for existing revisions in the database in a more sufficient manner
-      # This is replacing the one-after-one queries.
-      # Find all revisions, that are in the database, and then remove them from the revision array.
-      # Then later we won't need any conditions for db existence.
-      # Query for several revisions at once, and remove them from the revisions array, if they are there.
-      # Do this in chunks, to avoid eventual memory problems (in case of tens of thousands of commits).
-      # If there are no revisions (because the original code's algoritm filtered them),
-      # then this part will be stepped over.
-      # We make queries, just if there is any revision.
-      limit = 100
-      offset = 0
-      revisions_copy = revisions.clone # revisions will change
-      while offset < revisions_copy.size
-        recent_changesets_slice = changesets.find(
-                                     :all,
-                                     :conditions => [
-                                        'scmid IN (?)',
-                                        revisions_copy.slice(offset, limit).map{|x| x.scmid}
-                                      ]
-                                    )
-        # Subtract revisions that redmine already knows about
-        recent_revisions = recent_changesets_slice.map{|c| c.scmid}
-        revisions.reject!{|r| recent_revisions.include?(r.scmid)}
-        offset += limit
-      end
-
-      revisions.each do |rev|
-        transaction do
-          # There is no search in the db for this revision, because above we ensured,
-          # that it's not in the db.
-          db_saved_rev = save_revision(rev)
-          parents = {}
-          parents[db_saved_rev] = rev.parents unless rev.parents.nil?
-          parents.each do |ch, chparents|
-            ch.parents = chparents.collect{|rp| find_changeset_by_name(rp)}.compact
-          end
-          # saving the last scmid was moved from here, because we won't come in here,
-          # if the revision was already added for another branch
-        end
-      end
-
-      # save the data about the last revision for this branch
-      unless last_revision.nil?
-        h["branches"][br]["last_scmid"] = last_revision.scmid
-        merge_extra_info(h)
-        self.save
-      end
+  def save_revisions(old_scm_heads, new_scm_heads)
+    scm.revisions(
+      '', nil, nil,
+      :reverse => true,
+      :includes => heads_from_branches_hash(new_scm_heads),
+      :excludes => heads_from_branches_hash(old_scm_heads)
+    ) do |revision|
+      save_revision(revision)
     end
   end
   private :save_revisions
 
   def save_revision(rev)
+    parents = (rev.parents || []).collect{|rp| find_changeset_by_name(rp)}.compact
     changeset = Changeset.new(
               :repository   => self,
               :revision     => rev.identifier,
               :scmid        => rev.scmid,
               :committer    => rev.author,
               :committed_on => rev.time,
-              :comments     => rev.message
+              :comments     => rev.message,
+              :parents      => parents
               )
     if changeset.save
       rev.paths.each do |file|
@@ -242,11 +197,8 @@ class Repository::Git < Repository
   end
   private :save_revision
 
-  def heads_from_branches_hash
-    h1 = extra_info || {}
-    h  = h1.dup
-    h["branches"] ||= {}
-    h['branches'].map{|br, hs| hs['last_scmid']}
+  def heads_from_branches_hash(branches)
+    branches.map{|br, hs| hs['last_scmid']}
   end
 
   def latest_changesets(path,rev,limit=10)

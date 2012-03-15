@@ -105,6 +105,18 @@ begin
             ], @adapter.tags
       end
 
+      def test_heads
+        assert_equal  [
+              ["1ca7f5ed374f3cb31a93ae5215c2e25cc6ec5127", "latin-1-path-encoding"],
+              ["2a682156a3b6e77a8bf9cd4590e8db757f3c6c78", "issue-8857"],
+              ["67e7792ce20ccae2e4bb73eed09bb397819c8834", "test-latin-1"],
+              ["83ca5fd546063a3c7dc2e568ba3355661a9e2b2c", "master"],
+              ["83ca5fd546063a3c7dc2e568ba3355661a9e2b2c", "master-20120212"],
+              ["fba357b886984ee71185ad2065e65fc0417d9b92", "test_branch"]
+            ], @adapter.heads
+      end
+
+
       def test_revisions_master_all
         revs1 = []
         @adapter.revisions('', nil, "master",{}) do |rev|

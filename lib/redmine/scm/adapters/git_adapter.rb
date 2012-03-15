@@ -107,6 +107,18 @@ module Redmine
           nil
         end
 
+        def heads
+          return @heads if @heads
+          cmd_args = %w|show-ref --heads|
+          @heads = scm_cmd(cmd_args) do |io|
+            io.map do |line|
+              line.chomp.match('(.*?)\s+refs/heads/(.*)')[1, 2]
+            end.sort
+          end
+        rescue ScmCommandAborted
+          []
+        end
+
         def default_branch
           bras = self.branches
           return nil if bras.nil?
